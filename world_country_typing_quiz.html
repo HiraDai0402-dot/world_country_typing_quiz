@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>世界の国名タイピングクイズ</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#dce2ea;--bg:#f4f7fb;--blue:#2563eb;--target:#f59e0b;--good:#15803d;--bad:#b91c1c}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:1100px;margin:auto;padding:18px}
+header{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px}
+h1{font-size:clamp(1.25rem,3vw,1.9rem);margin:0} .sub{color:var(--muted);font-size:.9rem;margin-top:5px}
+.panel{background:white;border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 4px 16px #15223b0a}
+.controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:5px}
+select,input,button{font:inherit;border-radius:10px;border:1px solid #cbd5e1;padding:11px;background:white;color:var(--ink);width:100%}
+button{cursor:pointer;font-weight:650;background:var(--blue);border-color:var(--blue);color:white}
+button.secondary{background:white;color:var(--ink);border-color:var(--line)}
+button:disabled{opacity:.5;cursor:not-allowed}
+#map{height:min(58vh,570px);min-height:330px;border-radius:12px;border:1px solid var(--line);overflow:hidden}
+.quiz{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;margin-top:12px}
+.answer-row{display:flex;gap:8px}.answer-row input{min-width:0}
+.stats{display:flex;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:.9rem;margin-top:12px}
+#feedback{min-height:1.6em;margin-top:9px;font-weight:650}
+.good{color:var(--good)}.bad{color:var(--bad)}.note{font-size:.82rem;color:var(--muted);line-height:1.55;margin-top:12px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.82rem;color:var(--muted);margin:10px 0 0}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-2px}
+@media(max-width:680px){main{padding:10px}.controls{grid-template-columns:1fr 1fr}.controls>div:last-child{grid-column:1/-1}#map{height:52vh;min-height:300px}.quiz{grid-template-columns:1fr}.answer-row{gap:6px}.answer-row button{width:auto;white-space:nowrap}}
+</style>
+</head>
+<body>
+<main>
+<header><div><h1>世界の国名タイピングクイズ</h1><div class="sub">地図を見て、強調された国の名前を入力する。</div></div><button id="newGame" class="secondary" style="width:auto">成績をリセット</button></header>
+<section class="panel">
+<div class="controls">
+  <div><label for="mode">出題モード</label><select id="mode"><option value="world">全世界</option><option value="africa">アフリカ</option><option value="asia">アジア</option><option value="europe">ヨーロッパ</option><option value="northAmerica">北アメリカ</option><option value="southAmerica">南アメリカ</option><option value="oceania">オセアニア</option><option value="neighbors">周辺国集中（陸続き）</option></select></div>
+  <div><label for="language">回答言語</label><select id="language"><option value="ja">日本語</option><option value="en">英語</option></select></div>
+  <div><label for="difficulty">出題対象</label><select id="difficulty"><option value="all">すべての国・地域</option><option value="sovereign">主権国家中心</option></select></div>
+</div>
+<div id="map" aria-label="世界地図"></div>
+<div class="legend"><span><i class="swatch" style="background:#f59e0b"></i>出題中の国</span><span><i class="swatch" style="background:#cbd5e1"></i>その他の国</span><span><i class="swatch" style="background:#64748b"></i>周辺国（陸続き）</span></div>
+<div class="quiz">
+  <div><label for="answer">国名を入力</label><div class="answer-row"><input id="answer" autocomplete="off" autocapitalize="off" placeholder="国名をタイプ…" disabled><button id="submit" disabled>回答</button></div></div>
+  <button id="next" class="secondary" disabled>次の問題</button>
+</div>
+<div id="feedback" role="status">地図データを読み込んでいます…</div>
+<div class="stats"><span>問題数：<b id="count">0</b></span><span>正解：<b id="correct">0</b></span><span>正答率：<b id="rate">0%</b></span></div>
+<div class="note">国境データ：Natural Earth（公開データ）。国境の扱いには国際的な見解の違いがあるため、この地図が領土問題の唯一の見解を示すものではありません。地図データは外部配信元から読み込むため、利用にはインターネット接続が必要です。</div>
+</section>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+<script>
+const GEO_URL='https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson';
+const jaNames={
+'Afghanistan':'アフガニスタン','Albania':'アルバニア','Algeria':'アルジェリア','Andorra':'アンドラ','Angola':'アンゴラ','Antigua and Barbuda':'アンティグア・バーブーダ','Argentina':'アルゼンチン','Armenia':'アルメニア','Australia':'オーストラリア','Austria':'オーストリア','Azerbaijan':'アゼルバイジャン','Bahamas':'バハマ','Bahrain':'バーレーン','Bangladesh':'バングラデシュ','Barbados':'バルバドス','Belarus':'ベラルーシ','Belgium':'ベルギー','Belize':'ベリーズ','Benin':'ベナン','Bhutan':'ブータン','Bolivia':'ボリビア','Bosnia and Herzegovina':'ボスニア・ヘルツェゴビナ','Botswana':'ボツワナ','Brazil':'ブラジル','Brunei':'ブルネイ','Bulgaria':'ブルガリア','Burkina Faso':'ブルキナファソ','Burundi':'ブルンジ','Cambodia':'カンボジア','Cameroon':'カメルーン','Canada':'カナダ','Central African Republic':'中央アフリカ共和国','Chad':'チャド','Chile':'チリ','China':'中国','Colombia':'コロンビア','Comoros':'コモロ','Costa Rica':'コスタリカ','Croatia':'クロアチア','Cuba':'キューバ','Cyprus':'キプロス','Czechia':'チェコ','Democratic Republic of the Congo':'コンゴ民主共和国','Denmark':'デンマーク','Djibouti':'ジブチ','Dominican Republic':'ドミニカ共和国','Ecuador':'エクアドル','Egypt':'エジプト','El Salvador':'エルサルバドル','Equatorial Guinea':'赤道ギニア','Eritrea':'エリトリア','Estonia':'エストニア','Eswatini':'エスワティニ','Ethiopia':'エチオピア','Fiji':'フィジー','Finland':'フィンランド','France':'フランス','Gabon':'ガボン','Gambia':'ガンビア','Georgia':'ジョージア','Germany':'ドイツ','Ghana':'ガーナ','Greece':'ギリシャ','Greenland':'グリーンランド','Guatemala':'グアテマラ','Guinea':'ギニア','Guinea-Bissau':'ギニアビサウ','Guyana':'ガイアナ','Haiti':'ハイチ','Honduras':'ホンジュラス','Hungary':'ハンガリー','Iceland':'アイスランド','India':'インド','Indonesia':'インドネシア','Iran':'イラン','Iraq':'イラク','Ireland':'アイルランド','Israel':'イスラエル','Italy':'イタリア','Ivory Coast':'コートジボワール','Jamaica':'ジャマイカ','Japan':'日本','Jordan':'ヨルダン','Kazakhstan':'カザフスタン','Kenya':'ケニア','Kosovo':'コソボ','Kuwait':'クウェート','Kyrgyzstan':'キルギス','Laos':'ラオス','Latvia':'ラトビア','Lebanon':'レバノン','Lesotho':'レソト','Liberia':'リベリア','Libya':'リビア','Lithuania':'リトアニア','Luxembourg':'ルクセンブルク','Madagascar':'マダガスカル','Malawi':'マラウイ','Malaysia':'マレーシア','Maldives':'モルディブ','Mali':'マリ','Malta':'マルタ','Mauritania':'モーリタニア','Mauritius':'モーリシャス','Mexico':'メキシコ','Moldova':'モルドバ','Mongolia':'モンゴル','Montenegro':'モンテネグロ','Morocco':'モロッコ','Mozambique':'モザンビーク','Myanmar':'ミャンマー','Namibia':'ナミビア','Nepal':'ネパール','Netherlands':'オランダ','New Zealand':'ニュージーランド','Nicaragua':'ニカラグア','Niger':'ニジェール','Nigeria':'ナイジェリア','North Korea':'北朝鮮','North Macedonia':'北マケドニア','Norway':'ノルウェー','Oman':'オマーン','Pakistan':'パキスタン','Panama':'パナマ','Papua New Guinea':'パプアニューギニア','Paraguay':'パラグアイ','Peru':'ペルー','Philippines':'フィリピン','Poland':'ポーランド','Portugal':'ポルトガル','Qatar':'カタール','Republic of the Congo':'コンゴ共和国','Romania':'ルーマニア','Russia':'ロシア','Rwanda':'ルワンダ','Saudi Arabia':'サウジアラビア','Senegal':'セネガル','Serbia':'セルビア','Sierra Leone':'シエラレオネ','Singapore':'シンガポール','Slovakia':'スロバキア','Slovenia':'スロベニア','Solomon Islands':'ソロモン諸島','Somalia':'ソマリア','South Africa':'南アフリカ','South Korea':'韓国','South Sudan':'南スーダン','Spain':'スペイン','Sri Lanka':'スリランカ','Sudan':'スーダン','Suriname':'スリナム','Sweden':'スウェーデン','Switzerland':'スイス','Syria':'シリア','Taiwan':'台湾','Tajikistan':'タジキスタン','Tanzania':'タンザニア','Thailand':'タイ','Timor-Leste':'東ティモール','Togo':'トーゴ','Trinidad and Tobago':'トリニダード・トバゴ','Tunisia':'チュニジア','Turkey':'トルコ','Turkmenistan':'トルクメニスタン','Uganda':'ウガンダ','Ukraine':'ウクライナ','United Arab Emirates':'アラブ首長国連邦','United Kingdom':'イギリス','United States of America':'アメリカ合衆国','Uruguay':'ウルグアイ','Uzbekistan':'ウズベキスタン','Vanuatu':'バヌアツ','Venezuela':'ベネズエラ','Vietnam':'ベトナム','Yemen':'イエメン','Zambia':'ザンビア','Zimbabwe':'ジンバブエ','South Georgia':'サウスジョージア島','Western Sahara':'西サハラ','Falkland Islands':'フォークランド諸島','French Southern and Antarctic Lands':'フランス領南方・南極地域','Antarctica':'南極'
+};
+const aliases={
+'United States of America':['usa','united states','us','アメリカ','米国'],'South Korea':['korea, republic of','republic of korea','korea','韓国','大韓民国'],'North Korea':['dprk','democratic people’s republic of korea','朝鮮民主主義人民共和国'],'Russia':['russian federation','ロシア連邦'],'Czechia':['czech republic','チェコ共和国'],'Ivory Coast':['côte d’ivoire','cote d ivoire','コートジボアール'],'Eswatini':['swaziland','スワジランド'],'Türkiye':['turkey','トルコ'],'United Kingdom':['uk','britain','great britain','イギリス'],'United Arab Emirates':['uae','アラブ首長国連邦'],'Democratic Republic of the Congo':['dr congo','drc','コンゴ民主共和国'],'Republic of the Congo':['congo republic','コンゴ共和国']
+};
+const regions={africa:['Africa'],asia:['Asia'],europe:['Europe'],northAmerica:['North America'],southAmerica:['South America'],oceania:['Oceania']};
+const map=L.map('map',{worldCopyJump:true,minZoom:1}).setView([20,0],2);
+// 背景タイルは使わず、国のポリゴン自体を地図として描画
+let geoLayer,features=[],target=null,neighbors=new Set(),answered=false,count=0,correct=0,used=new Set();
+const $=id=>document.getElementById(id);
+function english(f){return f.properties.ADMIN||f.properties.NAME||'Unknown';}
+function japanese(f){return jaNames[english(f)]||f.properties.NAME_JA||english(f);}
+function nameFor(f){return $('language').value==='ja'?japanese(f):english(f);}
+function norm(s){return (s||'').normalize('NFKC').toLocaleLowerCase().trim().replace(/[’‘`´]/g,"'").replace(/[.,()\-]/g,' ').replace(/\s+/g,' ');}
+function acceptedNames(f){const en=english(f),ja=japanese(f);return [en,ja,...(aliases[en]||[]),f.properties.NAME||'',f.properties.FORMAL_EN||''].map(norm).filter(Boolean);}
+function isSovereign(f){const p=f.properties;return p.TYPE==='Sovereign country'||p.SOVEREIGNT===p.ADMIN||p.ADMIN==='Kosovo'||p.ADMIN==='Taiwan';}
+function styleFeature(f){const en=english(f);if(target&&en===english(target))return {color:'#92400e',weight:1.7,fillColor:'#f59e0b',fillOpacity:1};if(neighbors.has(en))return {color:'#475569',weight:1,fillColor:'#64748b',fillOpacity:.92};return {color:'#fff',weight:.65,fillColor:'#cbd5e1',fillOpacity:.88};}
+function modeFeatures(){let mode=$('mode').value;let list=features.filter(f=>f.properties.CONTINENT!=='Antarctica');if($('difficulty').value==='sovereign')list=list.filter(isSovereign);if(regions[mode])list=list.filter(f=>regions[mode].includes(f.properties.CONTINENT));return list;}
+function getNeighbors(f){const set=new Set();if(!f)return set;try{const bb=turf.bbox(f);for(const other of features){if(other===f||english(other)===english(f))continue;const ob=turf.bbox(other);if(bb[0]>ob[2]||bb[2]<ob[0]||bb[1]>ob[3]||bb[3]<ob[1])continue;try{if(turf.booleanTouches(f,other)||turf.booleanIntersects(f,other))set.add(english(other));}catch(e){}}}catch(e){}return set;}
+function render(){if(geoLayer)geoLayer.remove();geoLayer=L.geoJSON({type:'FeatureCollection',features},{style:f=>styleFeature(f),onEachFeature:(f,l)=>l.bindTooltip(japanese(f),{sticky:true})}).addTo(map);if(target){const shown=features.filter(f=>english(f)===english(target)||neighbors.has(english(f)));if(shown.length){const group=L.featureGroup(shown.map(f=>L.geoJSON(f)));const bounds=group.getBounds();if(bounds.isValid())map.fitBounds(bounds.pad(.22),{maxZoom:5});}}else map.setView([20,0],2);}
+function nextQuestion(){const list=modeFeatures();if(!list.length){$('feedback').textContent='このモードに出題できる国がありません。';return;}let candidates=list.filter(f=>!used.has(english(f)));if(!candidates.length){used.clear();candidates=list;}target=candidates[Math.floor(Math.random()*candidates.length)];used.add(english(target));neighbors=getNeighbors(target);answered=false;$('answer').value='';$('answer').disabled=false;$('submit').disabled=false;$('next').disabled=true;$('feedback').textContent='';render();$('answer').focus({preventScroll:true});}
+function submitAnswer(){if(!target||answered)return;const val=norm($('answer').value);if(!val){$('feedback').textContent='国名を入力してください。';return;}count++;const ok=acceptedNames(target).includes(val);if(ok){correct++;$('feedback').className='good';$('feedback').textContent='正解！ '+japanese(target)+'（'+english(target)+'）';}else{$('feedback').className='bad';$('feedback').textContent='不正解。正しい国名：'+japanese(target)+'（'+english(target)+'）';}answered=true;$('answer').disabled=true;$('submit').disabled=true;$('next').disabled=false;$('count').textContent=count;$('correct').textContent=correct;$('rate').textContent=Math.round(correct/count*100)+'%';render();}
+$('submit').addEventListener('click',submitAnswer);$('answer').addEventListener('keydown',e=>{if(e.key==='Enter')submitAnswer();});$('next').addEventListener('click',nextQuestion);$('mode').addEventListener('change',nextQuestion);$('language').addEventListener('change',()=>{if(target)render();});$('difficulty').addEventListener('change',nextQuestion);$('newGame').addEventListener('click',()=>{count=correct=0;used.clear();$('count').textContent='0';$('correct').textContent='0';$('rate').textContent='0%';nextQuestion();});
+fetch(GEO_URL).then(r=>{if(!r.ok)throw new Error('地図データを取得できませんでした');return r.json();}).then(data=>{features=data.features.filter(f=>f.geometry&&f.properties);$('feedback').textContent='準備完了。強調された国の名前を入力してください。';nextQuestion();}).catch(err=>{$('feedback').className='bad';$('feedback').textContent='地図データの読み込みに失敗しました。ネット接続を確認して再読み込みしてください。';console.error(err);});
+</script>
+</body>
+</html>
